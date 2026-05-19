@@ -72,7 +72,7 @@ cd windows-agent
 The final structure must look like this:
 
 ```
-WinAgent\
+windows-agent\
     agent.py
     requirements.txt
     setup_autostart.ps1
@@ -114,10 +114,10 @@ Download all files from the repository and place them exactly as shown in the st
 
 ## 4. Install Python dependencies
 
-Navigate to the WinAgent folder and install:
+Navigate to the windows-agent folder and install:
 
 ```
-cd C:\Users\$env:USERNAME\WinAgent
+cd C:\Users\$env:USERNAME\windows-agent
 pip install -r requirements.txt
 ```
 
@@ -142,7 +142,7 @@ A small window may appear — close it or click OK. This pre-generates COM type 
 Open `config\settings.yaml` with Notepad:
 
 ```
-notepad C:\Users\$env:USERNAME\WinAgent\config\settings.yaml
+notepad C:\Users\$env:USERNAME\windows-agent\config\settings.yaml
 ```
 
 Verify `server_ip` is set to your actual server VM IP:
@@ -176,7 +176,7 @@ All three must match your actual server VM IP and database password.
 Open `config\settings.yaml`:
 
 ```
-notepad C:\Users\$env:USERNAME\WinAgent\config\settings.yaml
+notepad C:\Users\$env:USERNAME\windows-agent\config\settings.yaml
 ```
 
 Set the role to one of:
@@ -236,7 +236,7 @@ Should print `DB connected`.
 Always test manually before setting up autostart. Navigate to the folder and run:
 
 ```
-cd C:\Users\$env:USERNAME\WinAgent
+cd C:\Users\$env:USERNAME\windows-agent
 python agent.py --debug
 ```
 
@@ -268,7 +268,7 @@ Stop the agent with Ctrl+C when done testing. If Ctrl+C does not stop it, open a
 
 ```
 Get-Process python | Stop-Process -Force
-del C:\Users\$env:USERNAME\WinAgent\*.lock
+del C:\Users\$env:USERNAME\windows-agent\*.lock
 ```
 
 ---
@@ -303,7 +303,7 @@ The agent `python.exe` must NOT appear as a parent of any of these. If it does, 
 Open PowerShell **as Administrator** (right-click Start → Windows Terminal (Admin)):
 
 ```
-cd C:\Users\$env:USERNAME\WinAgent
+cd C:\Users\$env:USERNAME\windows-agent
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 .\setup_autostart.ps1
 ```
@@ -374,7 +374,7 @@ After reboot, wait 3-5 minutes then check the server dashboard. The agent should
 A lock file from a previous run exists. Delete it:
 
 ```
-del C:\Users\$env:USERNAME\WinAgent\*.lock
+del C:\Users\$env:USERNAME\windows-agent\*.lock
 ```
 
 **ModuleNotFoundError: No module named 'psycopg2'**
