@@ -1,0 +1,47 @@
+# LISA Windows Agent — Application Paths
+# =========================================
+# These are the default installation paths for Windows 10/11.
+# If Office or other apps are installed differently on your VM,
+# update the paths here before running the agent.
+#
+# To find the real path of an application:
+# Open PowerShell and run:
+#   Get-Command WINWORD.EXE -ErrorAction SilentlyContinue | Select-Object Source
+# Or search manually:
+#   Get-ChildItem "C:\Program Files*" -Recurse -Filter WINWORD.EXE 2>$null
+#
+# %USERNAME% and %USERPROFILE% are Windows environment variables
+# that automatically expand to the current user's name and home folder.
+
+apps:
+  # Web browsers
+  firefox: "C:\\Program Files\\Mozilla Firefox\\firefox.exe"
+  chrome:  "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+  edge:    "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
+
+  # MS Office — 32-bit installation (most common)
+  #word:    "C:\\Program Files (x86)\\Microsoft Office\\root\\Office16\\WINWORD.EXE"
+  #excel:   "C:\\Program Files (x86)\\Microsoft Office\\root\\Office16\\EXCEL.EXE"
+  #outlook: "C:\\Program Files (x86)\\Microsoft Office\\root\\Office16\\OUTLOOK.EXE"
+
+  # MS Office — 64-bit installation (uncomment if 32-bit paths don't work)
+  word:    "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE"
+  excel:   "C:\\Program Files\\Microsoft Office\\root\\Office16\\EXCEL.EXE"
+  outlook: "C:\\Program Files\\Microsoft Office\\root\\Office16\\OUTLOOK.EXE"
+
+  # Developer tools
+  vscode:  "C:\\Users\\%USERNAME%\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe"
+  gitbash: "C:\\Program Files\\Git\\git-bash.exe"
+  notepad: "C:\\Windows\\System32\\notepad.exe"
+
+  # Windows built-in tools
+  powershell: "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+  cmd:        "C:\\Windows\\System32\\cmd.exe"
+  calc:       "C:\\Windows\\System32\\calc.exe"
+  mstsc:      "C:\\Windows\\System32\\mstsc.exe"
+
+  # Admin tools
+  regedit:    "C:\\Windows\\regedit.exe"
+  taskschd:   "C:\\Windows\\System32\\taskschd.msc"
+  compmgmt:   "C:\\Windows\\System32\\compmgmt.msc"
+  devmgmt:    "C:\\Windows\\System32\\devmgmt.msc"

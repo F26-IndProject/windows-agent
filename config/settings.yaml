@@ -1,0 +1,26 @@
+# LISA Windows Agent — General Settings
+# ========================================
+# role: which behaviour profile to use
+#   user  = office worker (Word, Excel, browser, email)
+#   dev   = developer (VSCode, browser, terminals, Git)
+#   admin = system administrator (PowerShell, registry, RDP, SMB, scheduled tasks)
+role: dev
+
+# Work days: 1=Monday, 2=Tuesday, ..., 7=Sunday
+work_days: [1, 2, 3, 4, 5]
+
+# Working hours — agent does nothing outside these times
+work_start: "00:00"
+work_end:   "23:59"
+
+# How long the agent waits between activities (in seconds)
+# It picks a random value between min and max each time
+activity_interval_min: 120   # 2 minutes minimum
+activity_interval_max: 300   # 5 minutes maximum
+
+# Log file location (relative to the agent directory)
+log_file: "logs/agent.log"
+
+# LISA server settings
+server_ip:   "192.168.100.10"
+server_port: 8000
