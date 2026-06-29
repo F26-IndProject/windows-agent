@@ -1,117 +1,73 @@
 # LISA Windows Agent — Developer Role
 # ======================================
-# This profile simulates a Windows developer:
+# Simulates a Windows developer:
 # - Uses VS Code for coding
 # - Runs PowerShell and Git commands
-# - Browses developer resources (GitHub, Stack Overflow, Google)
+# - Browses developer resources
 # - Works with Word for documentation
-# - Accesses SMB shares for shared code/files
+# - Accesses SMB shares
+# - Sends and reads email
 
 activities:
 
   # ── VS Code ────────────────────────────────────────────────────────
   - action: open_app
     app: vscode
-    weight: 5
+    weight: 3
 
   # ── PowerShell — developer commands ───────────────────────────────
   - action: run_powershell
-    command: "git status 2>$null || Write-Host 'Not a git repo'"
-    weight: 4
-
-  - action: run_powershell
-    command: "git log --oneline -5 2>$null || Write-Host 'No git history'"
+    commands:
+      - "git status 2>$null || Write-Host 'Not a git repo'"
+      - "git log --oneline -5 2>$null || Write-Host 'No git history'"
+      - "python --version; pip list | Select-Object -First 5"
+      - "Get-ChildItem -Recurse -Filter *.py | Select-Object -First 10 FullName"
+      - "docker ps 2>$null || Write-Host 'Docker not running'"
     weight: 3
-
-  - action: run_powershell
-    command: "python --version; pip list | Select-Object -First 5"
-    weight: 3
-
-  - action: run_powershell
-    command: "Get-ChildItem -Recurse -Filter *.py | Select-Object -First 10 FullName"
-    weight: 2
-
-  - action: run_powershell
-    command: "docker ps 2>$null || Write-Host 'Docker not running'"
-    weight: 2
 
   # ── CMD commands ───────────────────────────────────────────────────
   - action: run_cmd
-    command: "dir /s *.py | find /c \".py\""
+    commands:
+      - "dir /s *.py | find /c \".py\""
+      - "python -c \"print('Hello World')\""
     weight: 2
 
-  - action: run_cmd
-    command: "python -c \"print('Hello World')\""
-    weight: 2
-
-  # ── Web browsing (developer resources) ────────────────────────────
+  # ── Web browsing ───────────────────────────────────────────────────
   - action: open_browser
     urls:
       - "https://stackoverflow.com"
-    weight: 4
-
-  - action: open_browser
-    urls:
       - "https://github.com"
-    weight: 4
-
-  - action: open_browser
-    urls:
       - "https://google.com"
-    weight: 3
-
-  - action: open_browser
-    urls:
       - "https://bing.com"
-    weight: 2
-
-  - action: open_browser
-    urls:
-      - "https://yandex.com"
-    weight: 1
-
-  - action: open_browser
-    urls:
       - "https://docs.python.org"
       - "https://docs.microsoft.com"
-    weight: 2
+      - "https://yandex.com"
+    weight: 3
 
-  # ── Word for documentation ─────────────────────────────────────────
+ # ── Word for documentation ─────────────────────────────────────────
   - action: word_document
-    filename: "technical_spec.docx"
-    content: >
-      Technical Specification
-
-      Module: Authentication Service
-      Version: 1.2.0
-      Author: Development Team
-
-      Description:
-      This module handles user authentication using JWT tokens.
-      The service validates credentials against the PostgreSQL database
-      and returns a signed token valid for 24 hours.
-
-      API Endpoints:
-      POST /api/auth/login — accepts username and password
-      POST /api/auth/refresh — refreshes an existing valid token
-      DELETE /api/auth/logout — invalidates the current token
+    filenames:
+      - "technical_spec.docx"
+      - "api_documentation.docx"
+      - "architecture_notes.docx"
     weight: 2
 
-  # ── SMB share — accessing shared code ─────────────────────────────
+  # ── SMB share ─────────────────────────────────────────────────────
+  # server loaded from .env
   - action: smb_access
-    server: "192.168.100.10"
     share: "share"
-    smb_action: "list"
+    smb_action: "browse"
     weight: 2
 
-  # ── Email ──────────────────────────────────────────────────────────
-  - action: outlook_email
-    to: "team@company.local"
-    subject: "Code review request"
-    body: "Hi, I've pushed my changes to the feature branch. Please review when you have time."
-    weight: 1
-
+  #── Email ──────────────────────────────────────────────────────────
   - action: outlook_read
+    weight: 2
+
+  - action: outlook_email
+    recipients:
+      - "lisalinux@lisa.local"
+      - "lisawindows@lisa.local"
+      - "lisaserver@lisa.local"
     weight: 2
 
   # ── Idle ──────────────────────────────────────────────────────────

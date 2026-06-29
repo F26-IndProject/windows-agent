@@ -34,6 +34,10 @@ apps:
   gitbash: "C:\\Program Files\\Git\\git-bash.exe"
   notepad: "C:\\Windows\\System32\\notepad.exe"
 
+  # Document Readers
+  acrobat: "C:\\Program Files\\Adobe\\Acrobat DC\\Acrobat\\Acrobat.exe"
+
+
   # Windows built-in tools
   powershell: "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
   cmd:        "C:\\Windows\\System32\\cmd.exe"

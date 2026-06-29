@@ -1,247 +1,442 @@
 """
 actions/office.py — MS Office automation via COM
 ===================================================
-COM (Component Object Model) is Microsoft's technology that lets one
-program control another. When we use COM to open Word, Windows starts
-Word through its own DCOM launcher service (svchost.exe -k DcomLaunch).
-The resulting WINWORD.EXE has svchost.exe as parent — NOT our agent.
+Outlook operations run in background — no visible window.
+Word and Excel open visibly via COM (parent = svchost.exe).
 
-This is the correct, professional way to automate Office. It:
-1. Satisfies the parent-process requirement
-2. Lets us actually type content, read emails, click buttons
-3. Is how tools like AutoIt, VBA macros, and test frameworks work
+Received attachments:
+- Word/ODT  -> ShellExecuteW, closed via taskkill
+- PDF       -> spawn.exe (parent = explorer.exe), closed via taskkill
+- Images    -> ShellExecuteW (parent = svchost.exe), closed via taskkill
+
+Sent attachments:
+- Agent picks files in sorted queue order from WinAgent\attachments\ folder
+- 80% of eligible templates include an attachment
+- Supports: .docx, .doc, .pdf, .jpg, .jpeg, .png
 
 REQUIRES: pip install pywin32
-After installing, run: python -m win32com.client.makepy
 """
 
+import ctypes
+import ctypes.wintypes
 import logging
 import os
 import random
+import subprocess
+import sys
 import time
 from datetime import datetime
-from pathlib import Path
+
+from actions.templates.email import REPLY_TEMPLATES, SEND_TEMPLATES
+from actions.templates.word_excel import get_word_content, get_excel_template
 
 
-def create_word_document(filename: str = "document.docx", content: str = ""):
+if getattr(sys, 'frozen', False):
+    _BASE_DIR = os.path.dirname(sys.executable)
+else:
+    _BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+SEND_ATTACHMENTS_DIR = os.path.join(_BASE_DIR, "attachments")
+RECV_ATTACHMENTS_DIR = os.path.join(
+    os.path.expandvars(r"%USERPROFILE%"), "Downloads", "LISA_Attachments"
+)
+
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".gif"}
+WORD_EXTENSIONS  = {".docx", ".doc", ".odt", ".odf"}
+PDF_EXTENSIONS   = {".pdf"}
+ALL_EXTENSIONS   = IMAGE_EXTENSIONS | WORD_EXTENSIONS | PDF_EXTENSIONS
+
+
+SEE_MASK_NOCLOSEPROCESS = 0x00000040
+
+class SHELLEXECUTEINFO(ctypes.Structure):
+    _fields_ = [
+        ("cbSize",        ctypes.wintypes.DWORD),
+        ("fMask",         ctypes.wintypes.ULONG),
+        ("hwnd",          ctypes.wintypes.HWND),
+        ("lpVerb",        ctypes.c_wchar_p),
+        ("lpFile",        ctypes.c_wchar_p),
+        ("lpParameters",  ctypes.c_wchar_p),
+        ("lpDirectory",   ctypes.c_wchar_p),
+        ("nShow",         ctypes.c_int),
+        ("hInstApp",      ctypes.wintypes.HINSTANCE),
+        ("lpIDList",      ctypes.c_void_p),
+        ("lpClass",       ctypes.c_wchar_p),
+        ("hkeyClass",     ctypes.wintypes.HKEY),
+        ("dwHotKey",      ctypes.wintypes.DWORD),
+        ("hMonitor",      ctypes.wintypes.HANDLE),
+        ("hProcess",      ctypes.wintypes.HANDLE),
+    ]
+
+
+def _get_outlook():
+    import win32com.client
+    try:
+        outlook = win32com.client.GetActiveObject("Outlook.Application")
+        logging.info("Outlook: reusing existing COM instance")
+    except Exception:
+        outlook = win32com.client.Dispatch("Outlook.Application")
+        logging.info("Outlook: launched new COM instance")
+
+    try:
+        explorer = outlook.Explorers
+        if explorer.Count == 0:
+            ns = outlook.GetNamespace("MAPI")
+            inbox = ns.GetDefaultFolder(6)
+            new_explorer = outlook.Explorers.Add(inbox, 0)
+            new_explorer.Display()
+            time.sleep(5)
+        # Window already open — no wait, IMAP already syncing
+    except Exception as e:
+        logging.warning(f"Outlook explorer setup failed: {e} — continuing anyway")
+
+    return outlook
+
+
+_attachment_queue_index = 0
+
+def _pick_next_attachment():
+    global _attachment_queue_index
+
+    if not os.path.isdir(SEND_ATTACHMENTS_DIR):
+        logging.warning(f"Attachments folder not found: {SEND_ATTACHMENTS_DIR}")
+        return None
+
+    supported = WORD_EXTENSIONS | PDF_EXTENSIONS | IMAGE_EXTENSIONS
+    files = sorted([
+        f for f in os.listdir(SEND_ATTACHMENTS_DIR)
+        if os.path.splitext(f)[1].lower() in supported
+    ])
+
+    if not files:
+        logging.warning("No attachment files found in attachments folder")
+        return None
+
+    chosen = files[_attachment_queue_index % len(files)]
+    _attachment_queue_index += 1
+    return os.path.join(SEND_ATTACHMENTS_DIR, chosen)
+
+
+def _open_word_attachment(file_path: str):
     """
-    Open Word via COM, create a new document, type content, save, and close.
-    The WINWORD.EXE process will be a child of svchost, not the agent.
+    Open Word/ODT via ShellExecuteW.
+    Parent = explorer.exe. Closed via taskkill after reading delay.
     """
     try:
-        import win32com.client
-        import pythoncom
+        ctypes.windll.shell32.ShellExecuteW(None, "open", file_path, None, None, 3)
+        logging.info(f"Word attachment opened: {os.path.basename(file_path)}")
 
-        # CoInitialize is needed when running COM from a non-main thread
+        read_time = random.randint(25, 35)
+        logging.info(f"Reading Word attachment for {read_time}s")
+        time.sleep(read_time)
+
+        ext = os.path.splitext(file_path)[1].lower()
+        if ext in [".docx", ".doc"]:
+            subprocess.run(["taskkill", "/F", "/IM", "WINWORD.EXE"], capture_output=True)
+        elif ext in [".odt", ".odf"]:
+            subprocess.run(["taskkill", "/F", "/IM", "soffice.exe"], capture_output=True)
+        logging.info(f"Word attachment closed: {os.path.basename(file_path)}")
+
+    except Exception as e:
+        logging.error(f"Word attachment failed: {e}")
+        subprocess.run(["taskkill", "/F", "/IM", "WINWORD.EXE"], capture_output=True)
+
+
+def _open_pdf_or_image_attachment(file_path: str):
+    """
+    PDF   -> spawn.exe (parent = explorer.exe) verified working.
+    Image -> ShellExecuteW (parent = svchost.exe) verified working.
+    Closes via taskkill by name after reading delay.
+    """
+    from actions.apps import open_pdf_via_spawn
+    ext = os.path.splitext(file_path)[1].lower()
+
+    if ext in PDF_EXTENSIONS:
+        open_pdf_via_spawn(file_path)
+    else:
+        # Images — ShellExecuteW gives svchost.exe as parent
+        ctypes.windll.shell32.ShellExecuteW(None, "open", file_path, None, None, 1)
+
+    logging.info(f"Attachment opened: {os.path.basename(file_path)}")
+
+    read_time = random.randint(25, 35)
+    logging.info(f"Reading attachment for {read_time}s")
+    time.sleep(read_time)
+
+    if ext in PDF_EXTENSIONS:
+        subprocess.run(["taskkill", "/F", "/IM", "Acrobat.exe"], capture_output=True)
+        subprocess.run(["taskkill", "/F", "/IM", "AcroRd32.exe"], capture_output=True)
+    elif ext in IMAGE_EXTENSIONS:
+        subprocess.run(["taskkill", "/F", "/IM", "Microsoft.Photos.exe"], capture_output=True)
+
+    logging.info(f"Attachment closed: {os.path.basename(file_path)}")
+
+
+def _open_received_attachment_and_close(save_path: str):
+    """Route to correct open/close method based on file type."""
+    ext = os.path.splitext(save_path)[1].lower()
+    if ext in WORD_EXTENSIONS:
+        _open_word_attachment(save_path)
+    elif ext in PDF_EXTENSIONS | IMAGE_EXTENSIONS:
+        _open_pdf_or_image_attachment(save_path)
+    else:
+        logging.warning(f"Unsupported attachment type: {ext} — skipping open")
+
+
+def _handle_received_attachments(msg):
+    """Download all attachments from a received email, open and close the first."""
+    try:
+        os.makedirs(RECV_ATTACHMENTS_DIR, exist_ok=True)
+        for i in range(1, msg.Attachments.Count + 1):
+            attachment = msg.Attachments.Item(i)
+            save_path  = os.path.join(RECV_ATTACHMENTS_DIR, attachment.FileName)
+            attachment.SaveAsFile(save_path)
+            logging.info(f"Attachment downloaded: {attachment.FileName}")
+            if i == 1:
+                _open_received_attachment_and_close(save_path)
+    except Exception as e:
+        logging.error(f"Attachment handling failed: {e}")
+
+
+def _reply_to_email(msg):
+    try:
+        reply      = msg.Reply()
+        reply.Body = (
+            random.choice(REPLY_TEMPLATES)
+            + f"\n\nBest regards\n"
+            + f"Sent at {datetime.now().strftime('%H:%M on %d %B %Y')}"
+        )
+        reply.Send()
+        logging.info(f"Reply sent to: {msg.SenderEmailAddress}")
+    except Exception as e:
+        logging.error(f"Reply failed: {e}")
+
+
+def read_outlook_inbox():
+    try:
+        import pythoncom
         pythoncom.CoInitialize()
 
-        # This line is what makes the magic happen:
-        # Instead of subprocess.Popen("WINWORD.EXE"), which makes agent the parent,
-        # we ask the COM system to give us a Word object.
-        # COM's DcomLaunch service handles the actual process creation.
-        word = win32com.client.Dispatch("Word.Application")
-        word.Visible = True   # True = user can see Word opening (realistic)
+        outlook   = _get_outlook()
+        namespace = outlook.GetNamespace("MAPI")
+        inbox     = namespace.GetDefaultFolder(6)
 
-        # Give Word a moment to fully open
-        time.sleep(2)
+        messages = inbox.Items
+        messages.Sort("[ReceivedTime]", True)
 
-        # Create a new blank document
-        doc = word.Documents.Add()
-        time.sleep(1)
+        # Get own email so we never reply to ourselves or bounce messages
+        own_email = ""
+        try:
+            own_email = namespace.Accounts.Item(1).SmtpAddress.lower()
+            logging.info(f"Own email: {own_email} — will skip self-emails and bounces")
+        except Exception as e:
+            logging.warning(f"Could not resolve own email: {e}")
 
-        # Type some content
-        word.Selection.TypeText(content or _random_work_content())
-        time.sleep(1)
+        unread_count = 0
+        for msg in messages:
+            if unread_count >= 3:
+                break
+            try:
+                if not msg.UnRead:
+                    continue
+                sender_addr = (msg.SenderEmailAddress or "").lower()
+                # Skip own emails (self-loop) and system/bounce senders
+                if own_email and sender_addr == own_email:
+                    logging.info(f"Skipping self-email: {msg.Subject}")
+                    msg.UnRead = False
+                    msg.Save()
+                    continue
+                if any(x in sender_addr for x in ("mailer-daemon", "postmaster", "noreply", "no-reply")):
+                    logging.info(f"Skipping system email from {sender_addr}")
+                    msg.UnRead = False
+                    msg.Save()
+                    continue
+                subject = msg.Subject
+                sender  = msg.SenderName
+                logging.info(f"Reading unread email from {sender}: {subject}")
+                msg.UnRead = False
+                msg.Save()
+                time.sleep(random.randint(3, 6))
+                if msg.Attachments.Count > 0:
+                    _handle_received_attachments(msg)
+                _reply_to_email(msg)
+                unread_count += 1
+            except Exception as e:
+                logging.error(f"Error processing email: {e}")
+                continue
 
-        # Save the document to the user's Documents folder
-        save_path = os.path.join(
-            os.path.expandvars(r"%USERPROFILE%\Documents"),
-            filename
-        )
-        doc.SaveAs2(save_path)
-        logging.info(f"Word document saved: {save_path}")
+        if unread_count == 0:
+            logging.info("Outlook: no unread emails found")
+        else:
+            logging.info(f"Outlook: processed {unread_count} unread emails")
 
-        # Wait a realistic amount of time before closing
-        time.sleep(random.randint(10, 30))
-
-        doc.Close(SaveChanges=False)   # Already saved above
-        word.Quit()
-        logging.info("Word closed via COM")
+        try:
+            outlook.Quit()
+        except Exception:
+            pass
+        subprocess.run(["taskkill", "/F", "/IM", "OUTLOOK.EXE"], capture_output=True)
+        logging.info("Outlook closed after read")
 
         pythoncom.CoUninitialize()
 
     except ImportError:
-        logging.error(
-            "pywin32 not installed. Run: pip install pywin32"
-        )
+        logging.error("pywin32 not installed.")
     except Exception as e:
-        logging.error(f"Word COM automation failed: {e}")
+        logging.error(f"Outlook read inbox failed: {e}")
 
 
-def create_excel_spreadsheet(filename: str = "data.xlsx"):
-    """
-    Open Excel via COM, fill a spreadsheet with sample data, save, and close.
-    """
+def send_outlook_email(
+    to: str = None,
+    subject: str = None,
+    body: str = None,
+    recipients: list = None
+):
+    try:
+        import pythoncom
+        pythoncom.CoInitialize()
+
+        outlook  = _get_outlook()
+        template = random.choice(SEND_TEMPLATES)
+        subject  = subject or template["subject"]
+        body     = body    or template["body"]
+
+        # If a recipients list was passed, filter own email and pick one.
+        # We do this here — inside COM context — so own email is always available.
+        if recipients:
+            try:
+                namespace  = outlook.GetNamespace("MAPI")
+                own_email  = namespace.Accounts.Item(1).SmtpAddress.lower()
+                filtered   = [r for r in recipients if r.lower() != own_email]
+                logging.info(f"Own email: {own_email} — filtered to {len(filtered)}/{len(recipients)} recipients")
+                to = random.choice(filtered if filtered else recipients)
+            except Exception as e:
+                logging.warning(f"Could not resolve own email: {e} — picking from full list")
+                to = random.choice(recipients)
+        elif not to:
+            to = "admin@lisa.local"
+
+        mail         = outlook.CreateItem(0)
+        mail.To      = to
+        mail.Subject = subject
+        mail.Body    = body + f"\n\nSent at {datetime.now().strftime('%H:%M on %d %B %Y')}"
+
+        if template.get("attach") and random.random() < 0.8:
+            attachment_path = _pick_next_attachment()
+            if attachment_path:
+                mail.Attachments.Add(attachment_path)
+                logging.info(f"Attachment added: {os.path.basename(attachment_path)}")
+
+        mail.Send()
+        logging.info(f"Outlook email sent to: {to} — subject: {subject}")
+
+        try:
+            outlook.Quit()
+        except Exception:
+            pass
+        subprocess.run(["taskkill", "/F", "/IM", "OUTLOOK.EXE"], capture_output=True)
+        logging.info("Outlook closed after send")
+
+        pythoncom.CoUninitialize()
+
+    except ImportError:
+        logging.error("pywin32 not installed.")
+    except Exception as e:
+        logging.error(f"Outlook send failed: {e}")
+
+
+def create_word_document(filename: str = "document.docx", content: str = ""):
     try:
         import win32com.client
         import pythoncom
 
         pythoncom.CoInitialize()
 
-        excel = win32com.client.Dispatch("Excel.Application")
+        word         = win32com.client.Dispatch("Word.Application")
+        word.Visible = True
+        time.sleep(2)
+
+        doc = word.Documents.Add()
+        time.sleep(1)
+        word.Selection.TypeText(content if content and content.strip() else get_word_content())
+        time.sleep(1)
+
+        base, ext = os.path.splitext(filename)
+        unique_filename = f"{base}_{datetime.now().strftime('%m%d_%H%M%S')}{ext}"
+        save_path = os.path.join(
+            os.path.expandvars(r"%USERPROFILE%\Documents"), unique_filename
+        )
+        doc.SaveAs2(save_path)
+        logging.info(f"Word document saved: {save_path}")
+
+        time.sleep(random.randint(10, 30))
+        try:
+            doc.Close(SaveChanges=False)
+        except Exception:
+            pass
+        try:
+            word.Quit()
+        except Exception:
+            pass
+        subprocess.run(["taskkill", "/F", "/IM", "WINWORD.EXE"], capture_output=True)
+        logging.info("Word closed")
+
+        pythoncom.CoUninitialize()
+
+    except ImportError:
+        logging.error("pywin32 not installed.")
+    except Exception as e:
+        logging.error(f"Word COM failed: {e}")
+        subprocess.run(["taskkill", "/F", "/IM", "WINWORD.EXE"], capture_output=True)
+
+
+def create_excel_spreadsheet(filename: str = "data.xlsx"):
+    try:
+        import win32com.client
+        import pythoncom
+
+        pythoncom.CoInitialize()
+
+        excel         = win32com.client.Dispatch("Excel.Application")
         excel.Visible = True
         time.sleep(2)
 
         wb = excel.Workbooks.Add()
         ws = wb.ActiveSheet
 
-        # Write headers
-        ws.Cells(1, 1).Value = "Date"
-        ws.Cells(1, 2).Value = "Item"
-        ws.Cells(1, 3).Value = "Value"
+        template = get_excel_template()
+        ws.Name  = template["sheet"]
 
-        # Write some sample data rows
-        samples = [
-            ("Project Alpha", 142),
-            ("Project Beta", 87),
-            ("Maintenance", 34),
-            ("Review", 56),
-        ]
-        for i, (item, value) in enumerate(samples, start=2):
-            ws.Cells(i, 1).Value = datetime.now().strftime("%Y-%m-%d")
-            ws.Cells(i, 2).Value = item
-            ws.Cells(i, 3).Value = value
+        for col, header in enumerate(template["headers"], start=1):
+            ws.Cells(1, col).Value = header
 
+        for row_idx, row_data in enumerate(template["rows"], start=2):
+            for col_idx, cell_val in enumerate(row_data, start=1):
+                ws.Cells(row_idx, col_idx).Value = cell_val
+
+        sheet_name      = template["sheet"].lower().replace(" ", "_")
+        unique_filename = f"{sheet_name}_{datetime.now().strftime('%m%d_%H%M%S')}.xlsx"
         save_path = os.path.join(
-            os.path.expandvars(r"%USERPROFILE%\Documents"),
-            filename
+            os.path.expandvars(r"%USERPROFILE%\Documents"), unique_filename
         )
         wb.SaveAs(save_path)
         logging.info(f"Excel spreadsheet saved: {save_path}")
 
         time.sleep(random.randint(8, 20))
-
-        wb.Close(SaveChanges=False)
-        excel.Quit()
-        logging.info("Excel closed via COM")
-
-        pythoncom.CoUninitialize()
-
-    except ImportError:
-        logging.error("pywin32 not installed. Run: pip install pywin32")
-    except Exception as e:
-        logging.error(f"Excel COM automation failed: {e}")
-
-
-def send_outlook_email(
-    to: str = "colleague@company.local",
-    subject: str = "Update",
-    body: str = "Please see the latest update."
-):
-    """
-    Compose and send an email via Outlook COM.
-    Outlook must be installed and a mail account configured.
-    """
-    try:
-        import win32com.client
-        import pythoncom
-
-        pythoncom.CoInitialize()
-
-        # GetActiveObject tries to reuse an already-open Outlook instance
-        # If Outlook isn't open, Dispatch opens it
         try:
-            outlook = win32com.client.GetActiveObject("Outlook.Application")
+            wb.Close(SaveChanges=False)
         except Exception:
-            outlook = win32com.client.Dispatch("Outlook.Application")
-
-        time.sleep(2)
-
-        # Create a new email item
-        mail = outlook.CreateItem(0)   # 0 = olMailItem
-        mail.To = to
-        mail.Subject = subject
-        mail.Body = f"{body}\n\nSent from LISA simulation agent at {datetime.now().strftime('%H:%M')}"
-
-        # Send the email
-        mail.Send()
-        logging.info(f"Outlook email sent to: {to}, subject: {subject}")
-
-        pythoncom.CoUninitialize()
-
-    except ImportError:
-        logging.error("pywin32 not installed. Run: pip install pywin32")
-    except Exception as e:
-        logging.error(f"Outlook COM send failed: {e}")
-
-
-def read_outlook_inbox():
-    """
-    Open Outlook, access the inbox, and read the first few emails.
-    Simulates a user checking their mail.
-    """
-    try:
-        import win32com.client
-        import pythoncom
-
-        pythoncom.CoInitialize()
-
+            pass
         try:
-            outlook = win32com.client.GetActiveObject("Outlook.Application")
+            excel.Quit()
         except Exception:
-            outlook = win32com.client.Dispatch("Outlook.Application")
+            pass
+        subprocess.run(["taskkill", "/F", "/IM", "EXCEL.EXE"], capture_output=True)
+        logging.info("Excel closed")
 
-        time.sleep(2)
-
-        # Navigate to inbox
-        namespace = outlook.GetNamespace("MAPI")
-        inbox = namespace.GetDefaultFolder(6)   # 6 = olFolderInbox
-
-        # Read the most recent 3 emails
-        messages = inbox.Items
-        messages.Sort("[ReceivedTime]", True)   # Sort newest first
-
-        count = 0
-        for msg in messages:
-            if count >= 3:
-                break
-            try:
-                subject = msg.Subject
-                sender  = msg.SenderName
-                logging.info(f"Reading email from {sender}: {subject}")
-                # Simulate reading time
-                time.sleep(random.randint(3, 8))
-                count += 1
-            except Exception:
-                continue
-
-        logging.info("Finished reading Outlook inbox")
         pythoncom.CoUninitialize()
 
     except ImportError:
-        logging.error("pywin32 not installed. Run: pip install pywin32")
+        logging.error("pywin32 not installed.")
     except Exception as e:
-        logging.error(f"Outlook read inbox failed: {e}")
-
-
-def _random_work_content() -> str:
-    """Return a random work-like paragraph to type into documents."""
-    contents = [
-        "Weekly status update:\n\nProject Alpha is progressing on schedule. "
-        "All milestones for Q2 have been completed. The team will present "
-        "results in the Friday meeting.\n\nAction items: review the deployment "
-        "checklist, update the risk register, confirm stakeholder sign-off.",
-
-        "Meeting notes — Infrastructure review:\n\nAttendees: development team, "
-        "DevOps, management.\n\nDecisions made:\n"
-        "1. Upgrade server OS to Ubuntu 22.04 LTS by end of month.\n"
-        "2. Enable automatic backups on all production databases.\n"
-        "3. Schedule penetration test for Q3.",
-
-        "Incident report — System outage:\n\nDate: today\n"
-        "Duration: approximately 45 minutes\n"
-        "Root cause: network switch firmware update caused port reset.\n"
-        "Resolution: switch rebooted, services restored.\n"
-        "Prevention: schedule maintenance windows outside business hours.",
-    ]
-    return random.choice(contents)
+        logging.error(f"Excel COM failed: {e}")
+        subprocess.run(["taskkill", "/F", "/IM", "EXCEL.EXE"], capture_output=True)

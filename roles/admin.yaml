@@ -1,139 +1,78 @@
 # LISA Windows Agent — System Administrator Role
 # =================================================
-# This profile simulates a Windows system administrator:
-# - Runs PowerShell and CMD commands
-# - Accesses and reads registry keys
-# - Creates scheduled tasks
-# - Connects to servers via RDP
-# - Accesses file shares (SMB)
-# - Browses admin documentation
-# - Manages files and configuration
-
 activities:
 
-  # ── PowerShell — system management ────────────────────────────────
   - action: run_powershell
-    command: "Get-Service | Where-Object {$_.Status -eq 'Running'} | Select-Object -First 10"
-    weight: 4
-
-  - action: run_powershell
-    command: "Get-Process | Sort-Object CPU -Descending | Select-Object -First 10"
-    weight: 3
-
-  - action: run_powershell
-    command: "Get-EventLog -LogName System -Newest 5 | Format-Table TimeGenerated,EntryType,Message -AutoSize"
-    weight: 2
-
-  - action: run_powershell
-    command: "Get-NetIPConfiguration | Select-Object InterfaceAlias,IPv4Address,DNSServer"
-    weight: 2
-
-  - action: run_powershell
-    command: "Get-Disk | Select-Object Number,FriendlyName,Size,HealthStatus"
-    weight: 2
-
-  - action: run_powershell
-    command: "Get-LocalUser | Select-Object Name,Enabled,LastLogon"
-    weight: 2
-
-  - action: run_powershell
-    command: "Get-ScheduledTask | Where-Object {$_.State -eq 'Ready'} | Select-Object -First 5"
-    weight: 1
-
-  # ── CMD commands ───────────────────────────────────────────────────
-  - action: run_cmd
-    command: "ipconfig /all"
+    commands:
+      - "Get-Service | Where-Object {$_.Status -eq 'Running'} | Select-Object -First 10"
+      - "Get-Process | Sort-Object CPU -Descending | Select-Object -First 10"
+      - "Get-EventLog -LogName System -Newest 5 | Format-Table TimeGenerated,EntryType,Message -AutoSize"
+      - "Get-NetIPConfiguration | Select-Object InterfaceAlias,IPv4Address,DNSServer"
+      - "Get-Disk | Select-Object Number,FriendlyName,Size,HealthStatus"
+      - "Get-LocalUser | Select-Object Name,Enabled,LastLogon"
+      - "Get-ScheduledTask | Where-Object {$_.State -eq 'Ready'} | Select-Object -First 5"
     weight: 3
 
   - action: run_cmd
-    command: "netstat -an | findstr ESTABLISHED"
-    weight: 2
+    commands:
+      - "ipconfig /all"
+      - "netstat -an | findstr ESTABLISHED"
+      - "systeminfo | findstr /C:\"OS Name\" /C:\"Total Physical Memory\""
+      - "net user"
+      - "net share"
+      - "arp -a"
+    weight: 3
 
-  - action: run_cmd
-    command: "systeminfo | findstr /C:\"OS Name\" /C:\"Total Physical Memory\""
-    weight: 2
-
-  - action: run_cmd
-    command: "net user"
-    weight: 2
-
-  - action: run_cmd
-    command: "net share"
-    weight: 1
-
-  - action: run_cmd
-    command: "arp -a"
-    weight: 1
-
-  # ── Registry access ────────────────────────────────────────────────
   - action: registry_read
     key: "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion"
     value: "ProductName"
-    weight: 3
+    weight: 2
 
   - action: registry_read
     key: "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion"
     value: "CurrentBuildNumber"
-    weight: 2
+    weight: 1
 
   - action: registry_read
     key: "HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters"
     value: "Hostname"
-    weight: 2
+    weight: 1
 
   - action: registry_write
     key: "HKCU\\Software\\LISA"
     value: "LastAdminCheck"
     weight: 1
 
-  # ── Create scheduled tasks ────────────────────────────────────────
   - action: create_scheduled_task
     name: "LISADailyCleanup"
     execute: "cleanmgr.exe"
     at: "22:00"
     weight: 1
 
-  # ── RDP to server ─────────────────────────────────────────────────
-  - action: rdp_connect
-    target: "192.168.100.10"
-    rdp_user: "lisa"
-    rdp_pass: "lisa_password_2026"
-    weight: 2
-
-  # ── SMB share ─────────────────────────────────────────────────────
+  # server loaded from .env
   - action: smb_access
-    server: "192.168.100.10"
     share: "share"
     smb_action: "browse"
-    weight: 3
+    weight: 2
 
-  # ── Web browsing (admin documentation) ───────────────────────────
   - action: open_browser
     urls:
       - "https://docs.microsoft.com/en-us/windows-server/administration"
-    weight: 2
-
-  - action: open_browser
-    urls:
       - "https://google.com"
-    weight: 2
-
-  - action: open_browser
-    urls:
       - "https://bing.com"
-    weight: 1
-
-  # ── Outlook email ─────────────────────────────────────────────────
-  - action: outlook_email
-    to: "team@company.local"
-    subject: "System maintenance completed"
-    body: "The scheduled maintenance has been completed successfully. All services are running normally."
-    weight: 1
+      - "https://technet.microsoft.com"
+    weight: 2
 
   - action: outlook_read
     weight: 2
 
+  - action: outlook_email
+    recipients:
+      - "lisalinux@lisa.local"
+      - "lisawindows@lisa.local"
+      - "lisaserver@lisa.local"
+    weight: 2
   # ── Idle ──────────────────────────────────────────────────────────
   - action: sleep
-    seconds: 120
+    seconds: 240
     weight: 2

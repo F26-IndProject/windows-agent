@@ -1,21 +1,14 @@
 """
 actions/smb.py — SMB network share access
 ==========================================
-Simulates a user accessing a network file share.
-Uses standard Windows net use commands and file operations.
-Generates real SMB/CIFS traffic on the network which is
-exactly what the customer asked for.
-
-WHY THIS MATTERS:
-In a cyber range, defenders use tools like Wireshark, Suricata,
-or Zeek to watch network traffic. Without SMB traffic, the network
-looks suspicious — real office networks have constant file share access.
-This makes the simulation look authentic.
-
-HOW IT WORKS:
-1. Maps the share using "net use" (like a user mapping a network drive)
-2. Performs file operations (list, read, write, delete)
-3. Disconnects the share
+Simulates realistic user file share behaviour:
+- Reading files and logging content
+- Editing existing files by appending content
+- Creating new files
+- Moving files between folders
+- Copying files
+- Deleting temp files
+Generates real SMB/CIFS traffic visible on the network.
 """
 
 import logging
@@ -26,77 +19,78 @@ import time
 from datetime import datetime
 
 
-# The drive letter we'll temporarily map the share to
-# Z: is rarely used so unlikely to conflict
 DRIVE_LETTER = "Z:"
+
+EDIT_TEMPLATES = [
+    "Updated by team member on {date}. Changes reviewed and approved.",
+    "Note added {date}: Please review before end of day.",
+    "Revision {date}: Minor corrections applied. Version incremented.",
+    "Checked on {date}. All items verified and signed off.",
+    "Amendment {date}: Additional information appended per manager request.",
+    "Follow-up {date}: Awaiting confirmation from stakeholders.",
+    "Review complete {date}: No further changes required at this time.",
+]
+
+NEW_FILE_CONTENTS = [
+    "Meeting summary\nDate: {date}\nAttendees: team members\nDecisions: approved Q3 plan\nAction items: update timeline by Friday.",
+    "Status update\nDate: {date}\nAll tasks on track. No blockers identified. Proceeding as planned.",
+    "Incident log\nDate: {date}\nMinor issue detected and resolved. Root cause identified. No further impact expected.",
+    "Project note\nDate: {date}\nMilestone reached. Deliverable submitted for review. Awaiting feedback.",
+]
 
 
 def access_share(
     server: str,
     share: str,
-    action: str = "list",
+    action: str = "browse",
     username: str = "",
     password: str = ""
 ):
-    """
-    Access an SMB share and perform a file operation.
-
-    server   — IP or hostname of the file server
-    share    — name of the share (e.g., "documents" maps to \\server\documents)
-    action   — what to do: "list", "read", "write", "browse"
-    username — leave empty for guest/current user
-    password — leave empty for current user's credentials
-    """
     share_path = f"\\\\{server}\\{share}"
 
     try:
-        # Step 1: Map the share to a drive letter
         _map_share(share_path, username, password)
         time.sleep(2)
 
-        # Step 2: Perform the requested action
         if action == "list":
             _list_share()
         elif action == "read":
-            _read_from_share()
+            _read_all_files()
         elif action == "write":
-            _write_to_share()
+            _create_new_file()
+        elif action == "edit":
+            _edit_existing_file()
         elif action == "browse":
-            # Do all of the above in sequence
+            # Full realistic session — all operations
             _list_share()
-            time.sleep(2)
-            _read_from_share()
-            time.sleep(2)
-            _write_to_share()
+            time.sleep(random.randint(2, 4))
+            _read_all_files()
+            time.sleep(random.randint(2, 4))
+            _edit_existing_file()
+            time.sleep(random.randint(2, 4))
+            _create_new_file()
+            time.sleep(random.randint(2, 4))
+            _copy_file()
 
-        # Step 3: Wait a bit (simulates user looking at files)
         time.sleep(random.randint(5, 15))
 
     except Exception as e:
         logging.error(f"SMB access failed for {share_path}: {e}")
 
     finally:
-        # Always disconnect the share when done
         _unmap_share()
 
 
 def _map_share(share_path: str, username: str, password: str):
-    """Map the network share to drive letter Z:"""
-    # First try to disconnect any existing Z: mapping
-    subprocess.run(
-        ["net", "use", DRIVE_LETTER, "/delete", "/yes"],
-        capture_output=True
-    )
+    subprocess.run(["net", "use", DRIVE_LETTER, "/delete", "/yes"], capture_output=True)
     time.sleep(1)
 
-    # Build the net use command
     cmd = ["net", "use", DRIVE_LETTER, share_path]
     if username:
         cmd += [f"/user:{username}", password]
-    cmd += ["/persistent:no"]   # Don't save across reboots
+    cmd += ["/persistent:no"]
 
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
-
     if result.returncode == 0:
         logging.info(f"Mapped {share_path} to {DRIVE_LETTER}")
     else:
@@ -105,62 +99,134 @@ def _map_share(share_path: str, username: str, password: str):
 
 
 def _list_share():
-    """List files on the mapped share — generates SMB directory listing traffic."""
+    """List all files and folders on the share."""
     try:
-        result = subprocess.run(
-            ["dir", f"{DRIVE_LETTER}\\"],
-            capture_output=True, text=True, shell=True, timeout=10
-        )
-        logging.info(f"Listed share contents: {result.stdout[:300]}")
+        items = os.listdir(f"{DRIVE_LETTER}\\")
+        logging.info(f"Share contents ({len(items)} items): {', '.join(items)}")
     except Exception as e:
         logging.error(f"Share listing failed: {e}")
 
 
-def _read_from_share():
-    """Try to read a file from the share — generates SMB read traffic."""
+def _read_all_files():
+    """Read every text file on the share and log its full content."""
     try:
-        # Try to read common filenames
-        candidates = [
-            f"{DRIVE_LETTER}\\readme.txt",
-            f"{DRIVE_LETTER}\\notes.txt",
-            f"{DRIVE_LETTER}\\info.txt",
+        files = [
+            f for f in os.listdir(f"{DRIVE_LETTER}\\")
+            if os.path.isfile(f"{DRIVE_LETTER}\\{f}")
+            and os.path.splitext(f)[1].lower() in [".txt", ".md", ".csv", ".log"]
         ]
-        for path in candidates:
-            if os.path.exists(path):
+
+        if not files:
+            logging.info("No readable text files found on share")
+            return
+
+        for filename in files:
+            path = f"{DRIVE_LETTER}\\{filename}"
+            try:
                 with open(path, "r", encoding="utf-8", errors="ignore") as f:
-                    content = f.read(500)
-                logging.info(f"Read from share: {path} ({len(content)} chars)")
-                return
-        logging.info("No readable files found on share (this is normal)")
+                    content = f.read()
+                logging.info(
+                    f"Read file: {filename} ({len(content)} chars)\n"
+                    f"--- content ---\n{content.strip()[:200]}\n--- end ---"
+                )
+                time.sleep(random.randint(2, 5))
+            except Exception as e:
+                logging.error(f"Could not read {filename}: {e}")
+
     except Exception as e:
         logging.error(f"Share read failed: {e}")
 
 
-def _write_to_share():
-    """Write a file to the share — generates SMB write traffic."""
+def _edit_existing_file():
+    """Pick a random existing file and append realistic content to it."""
+    try:
+        files = [
+            f for f in os.listdir(f"{DRIVE_LETTER}\\")
+            if os.path.isfile(f"{DRIVE_LETTER}\\{f}")
+            and os.path.splitext(f)[1].lower() in [".txt", ".md"]
+        ]
+
+        if not files:
+            logging.info("No editable files found on share — skipping edit")
+            return
+
+        filename = random.choice(files)
+        path = f"{DRIVE_LETTER}\\{filename}"
+
+        addition = random.choice(EDIT_TEMPLATES).format(
+            date=datetime.now().strftime("%Y-%m-%d %H:%M")
+        )
+
+        # Reset file if it has grown too large (over 2KB)
+        if os.path.getsize(path) > 2048:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(f"File reset on {datetime.now().strftime('%Y-%m-%d')}\n")
+            logging.info(f"Reset oversized file on share: {filename}")
+            return
+
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(f"\n{addition}")
+
+        logging.info(f"Edited file on share: {filename} — appended: {addition}")
+
+    except Exception as e:
+        logging.error(f"Share edit failed: {e}")
+
+
+def _create_new_file():
+    """Create a new timestamped file on the share then delete it."""
     try:
         filename = f"update_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
         path = f"{DRIVE_LETTER}\\{filename}"
-        content = (
-            f"Status update\n"
-            f"Created: {datetime.now().isoformat()}\n"
-            f"User: active session\n"
+
+        content = random.choice(NEW_FILE_CONTENTS).format(
+            date=datetime.now().strftime("%Y-%m-%d %H:%M")
         )
+
         with open(path, "w", encoding="utf-8") as f:
             f.write(content)
-        logging.info(f"Wrote to share: {path}")
 
-        # Clean up after ourselves
-        time.sleep(2)
+        logging.info(f"Created file on share: {filename}\n--- content ---\n{content}\n--- end ---")
+
+        time.sleep(random.randint(3, 8))
         os.remove(path)
-        logging.info(f"Removed temp file from share: {path}")
+        logging.info(f"Deleted temp file from share: {filename}")
 
     except Exception as e:
         logging.error(f"Share write failed: {e}")
 
 
+def _copy_file():
+    """Copy an existing file to a new name — simulates file copy operation."""
+    try:
+        files = [
+            f for f in os.listdir(f"{DRIVE_LETTER}\\")
+            if os.path.isfile(f"{DRIVE_LETTER}\\{f}")
+            and os.path.splitext(f)[1].lower() in [".txt", ".md"]
+        ]
+
+        if not files:
+            return
+
+        src_name = random.choice(files)
+        src_path = f"{DRIVE_LETTER}\\{src_name}"
+        base, ext = os.path.splitext(src_name)
+        dst_name = f"{base}_copy_{datetime.now().strftime('%H%M%S')}{ext}"
+        dst_path = f"{DRIVE_LETTER}\\{dst_name}"
+
+        import shutil
+        shutil.copy2(src_path, dst_path)
+        logging.info(f"Copied file on share: {src_name} → {dst_name}")
+
+        time.sleep(random.randint(2, 5))
+        os.remove(dst_path)
+        logging.info(f"Deleted copy from share: {dst_name}")
+
+    except Exception as e:
+        logging.error(f"Share copy failed: {e}")
+
+
 def _unmap_share():
-    """Disconnect the mapped share."""
     try:
         subprocess.run(
             ["net", "use", DRIVE_LETTER, "/delete", "/yes"],

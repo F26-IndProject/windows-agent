@@ -1,92 +1,89 @@
-"""
-actions/terminal.py — Terminal command execution
-==================================================
-Runs PowerShell and CMD commands in a way that:
-1. Runs them in a NEW window (so a user watching the screen sees a terminal open)
-2. Uses ShellExecute so the terminal's parent is svchost, not the agent
-3. Logs what was run and the result
-
-For admin-role agents, this is where scheduled task creation,
-registry queries, and service management commands run.
-"""
-
-import ctypes
 import logging
 import subprocess
+import os
+import sys
 import time
+import random
+
+def get_spawner_path():
+    if getattr(sys, 'frozen', False):
+        exe_dir = os.path.dirname(sys.executable)
+        base_dir = os.path.dirname(exe_dir)
+    else:
+        base_dir = os.path.dirname(os.path.dirname(__file__))
+    return os.path.join(base_dir, "spawn.exe")
+
+SPAWNER_PATH = get_spawner_path()
+SYSTEM32 = r"C:\Windows\System32"
+CMD_PATH = r"C:\Windows\System32\cmd.exe"
+POWERSHELL_PATH = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
+
+def run_cmd(command: str, visible: bool = True):
+    if not visible:
+        try:
+            result = subprocess.run(
+                ["cmd.exe", "/C", command],
+                capture_output=True, text=True, timeout=30,
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
+            logging.info(f"CMD (hidden) '{command}' → {result.stdout[:200]}")
+        except Exception as e:
+            logging.error(f"Hidden CMD failed: {e}")
+        return
+
+    try:
+        subprocess.Popen(
+            [SPAWNER_PATH, CMD_PATH, f'/K "{command}"', SYSTEM32],
+            creationflags=subprocess.CREATE_NO_WINDOW
+        )
+        logging.info(f"CMD window started: {command}")
+
+        wait = random.randint(15, 25)
+        logging.info(f"CMD window open for {wait}s")
+        time.sleep(wait)
+
+        subprocess.run(
+            ["taskkill", "/F", "/IM", "cmd.exe"],
+            capture_output=True,
+            creationflags=subprocess.CREATE_NO_WINDOW
+        )
+        logging.info("CMD window closed")
+
+    except Exception as e:
+        logging.error(f"Visible CMD failed: {e}")
 
 
 def run_powershell(command: str, visible: bool = True):
-    """
-    Run a PowerShell command.
-    If visible=True, a PowerShell window opens on screen (realistic).
-    If visible=False, runs hidden in background (for cleanup tasks).
-    """
-    try:
-        if visible:
-            # Use ShellExecute to open PowerShell visibly
-            # /K means "run command and keep window open"
-            # /C means "run command and close window"
-            full_cmd = f'powershell.exe -NoExit -Command "{command}"'
-            ret = ctypes.windll.shell32.ShellExecuteW(
-                None,
-                "open",
-                "powershell.exe",
-                f'-NoExit -Command "{command}"',
-                None,
-                1   # SW_SHOWNORMAL — show the window
-            )
-            if ret > 32:
-                logging.info(f"PowerShell command started: {command}")
-            else:
-                logging.error(f"ShellExecute failed for PowerShell (code {ret})")
-
-            # Let it run for a realistic duration before moving on
-            time.sleep(5)
-
-        else:
-            # Hidden execution — capture output for logging
+    if not visible:
+        try:
             result = subprocess.run(
                 ["powershell.exe", "-NonInteractive", "-Command", command],
-                capture_output=True,
-                text=True,
-                timeout=30
+                capture_output=True, text=True, timeout=30,
+                creationflags=subprocess.CREATE_NO_WINDOW
             )
             logging.info(f"PowerShell (hidden) '{command}' → {result.stdout[:200]}")
+        except Exception as e:
+            logging.error(f"Hidden PowerShell failed: {e}")
+        return
 
-    except Exception as e:
-        logging.error(f"PowerShell command failed '{command}': {e}")
-
-
-def run_cmd(command: str, visible: bool = True):
-    """
-    Run a CMD command. Same approach as PowerShell.
-    """
     try:
-        if visible:
-            ret = ctypes.windll.shell32.ShellExecuteW(
-                None,
-                "open",
-                "cmd.exe",
-                f'/K "{command}"',
-                None,
-                1
-            )
-            if ret > 32:
-                logging.info(f"CMD command started: {command}")
-            else:
-                logging.error(f"ShellExecute failed for CMD (code {ret})")
+        safe_cmd = command.replace('"', '\\"')
+        subprocess.Popen(
+            [SPAWNER_PATH, POWERSHELL_PATH, f'-NoExit -Command "{safe_cmd}"', SYSTEM32],
+            creationflags=subprocess.CREATE_NO_WINDOW
+        )
+        logging.info(f"PowerShell window started: {command}")
 
-            time.sleep(4)
+        wait = random.randint(15, 25)
+        logging.info(f"PowerShell window open for {wait}s")
+        time.sleep(wait)
 
-        else:
-            result = subprocess.run(
-                ["cmd.exe", "/C", command],
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
-            logging.info(f"CMD (hidden) '{command}' → {result.stdout[:200]}")
+        subprocess.run(
+            ["taskkill", "/F", "/IM", "powershell.exe"],
+            capture_output=True,
+            creationflags=subprocess.CREATE_NO_WINDOW
+        )
+        logging.info("PowerShell window closed")
 
     except Exception as e:
-        logging.error(f"CMD command failed '{command}': {e}")
+        logging.error(f"Visible PowerShell failed: {e}")

@@ -1,103 +1,50 @@
 # LISA Windows Agent — Office Worker Role
 # ==========================================
-# This profile simulates a typical office user:
-# - Checks and sends email in Outlook
-# - Works on Word documents
-# - Uses Excel for data
-# - Browses the web (Google, Bing, Yandex, company sites)
-# - Opens and reads files
-# - Has idle periods
-
 activities:
-
-  # ── Outlook email ──────────────────────────────────────────────────
   - action: outlook_read
-    weight: 4
-    # Reads the inbox — happens frequently (4x more than weight-1 items)
-
-  - action: outlook_email
-    to: "manager@company.local"
-    subject: "Daily status update"
-    body: "Hi, here is today's update. Tasks are on track."
     weight: 2
 
   - action: outlook_email
-    to: "team@company.local"
-    subject: "Meeting reminder"
-    body: "Just a reminder that we have our weekly sync at 14:00."
-    weight: 1
+    recipients:
+      - "lisalinux@lisa.local"
+      - "lisawindows@lisa.local"
+      - "lisaserver@lisa.local"
 
-  # ── Word documents ─────────────────────────────────────────────────
-  - action: word_document
-    filename: "weekly_report.docx"
-    content: >
-      Weekly Status Report
-      
-      All assigned tasks have been completed on schedule.
-      The team delivered the project documentation by the deadline.
-      No blockers identified this week.
-      Next steps: review feedback from stakeholders.
-    weight: 3
-
-  - action: word_document
-    filename: "meeting_notes.docx"
-    content: >
-      Meeting Notes
-      
-      Attendees: team members
-      Agenda: project planning
-      Decisions: approved budget for Q3 activities
-      Action items: update timeline by Friday
     weight: 2
 
-  # ── Excel spreadsheets ────────────────────────────────────────────
+  - action: word_document
+    filenames:
+      - "weekly_report.docx"
+      - "meeting_notes.docx"
+      - "project_plan.docx"
+      - "status_update.docx"
+    weight: 2
+
   - action: excel_spreadsheet
     filename: "monthly_data.xlsx"
     weight: 2
 
-  # ── Web browsing ───────────────────────────────────────────────────
   - action: open_browser
     urls:
       - "https://google.com"
-    weight: 3
-
-  - action: open_browser
-    urls:
       - "https://bing.com"
-    weight: 2
-
-  - action: open_browser
-    urls:
       - "https://yandex.com"
+      - "https://wikipedia.org"
+      - "https://weather.com"
+      - "https://news.google.com"
     weight: 2
 
-  - action: open_browser
-    urls:
-      - "https://mail.google.com"
-      - "https://outlook.live.com"
-    weight: 2
-
-  - action: open_browser
-    urls:
-      - "https://docs.google.com"
-      - "https://drive.google.com"
-    weight: 1
-
-  # ── SMB network share ─────────────────────────────────────────────
+  # server loaded from .env
   - action: smb_access
-    server: "192.168.100.10"
     share: "share"
     smb_action: "browse"
     weight: 2
 
-  # ── Create a file locally ─────────────────────────────────────────
   - action: create_file
     path: "%USERPROFILE%\\Documents\\notes.txt"
-    content: "Quick notes from today's meeting. Follow up needed on Q3 deliverables."
+    content: "Quick notes from today. Follow up needed on Q3 deliverables."
     weight: 1
-
-  # ── Idle periods ──────────────────────────────────────────────────
+  # ── Idle ──────────────────────────────────────────────────────────
   - action: sleep
-    seconds: 180
+    seconds: 240
     weight: 2
-    # Simulates the user being in a meeting or away from keyboard
