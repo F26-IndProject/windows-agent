@@ -269,6 +269,8 @@ def read_outlook_inbox():
             logging.info("Outlook: no unread emails found")
         else:
             logging.info(f"Outlook: processed {unread_count} unread emails")
+            logging.info("Waiting 15s for Outlook to flush outbox via SMTP...")
+            time.sleep(15)
 
         try:
             outlook.Quit()
@@ -328,6 +330,8 @@ def send_outlook_email(
 
         mail.Send()
         logging.info(f"Outlook email sent to: {to} — subject: {subject}")
+        logging.info("Waiting 15s for Outlook to flush outbox via SMTP...")
+        time.sleep(15)
 
         try:
             outlook.Quit()
