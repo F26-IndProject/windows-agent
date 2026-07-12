@@ -1,20 +1,15 @@
 """
 client/database.py — Direct PostgreSQL connection for Windows agent
 """
-
 import json
 import logging
 import os
 import threading
 from datetime import datetime
 from typing import Dict, Any, Optional, List
-
 import psycopg2
 from dotenv import load_dotenv
-
-
 load_dotenv()
-
 DB_CONFIG = {
     "host":     os.getenv("DB_HOST"),
     "port":     int(os.getenv("DB_PORT")),
@@ -22,14 +17,10 @@ DB_CONFIG = {
     "user":     os.getenv("DB_USER"),
     "password": os.getenv("DB_PASSWORD")
 }
-
-
 class DatabaseManager:
-
     def __init__(self):
         self.connection = None
         self._lock = threading.Lock()
-
     def connect(self) -> bool:
         try:
             self.connection = psycopg2.connect(**DB_CONFIG)
@@ -38,12 +29,10 @@ class DatabaseManager:
         except Exception as e:
             logging.error(f"Database connection failed: {e}")
             return False
-
     def disconnect(self):
         if self.connection:
             self.connection.close()
             logging.info("Disconnected from database")
-
     def _execute(self, query: str, params: tuple = None):
         with self._lock:
             try:
@@ -60,7 +49,6 @@ class DatabaseManager:
                 if self.connection:
                     self.connection.rollback()
                 return []
-
     def ensure_agent_exists(self, agent_id: str, username: str, role: str) -> Optional[int]:
         results = self._execute(
             "SELECT id FROM agents WHERE agent_id = %s",
@@ -77,7 +65,6 @@ class DatabaseManager:
                     (role, agent_id)
                 )
             return results[0]['id']
-
         logging.info(f"Creating agent record in database: {agent_id}")
         self._execute(
             """
@@ -99,7 +86,6 @@ class DatabaseManager:
             (agent_id,)
         )
         return results[0]['id'] if results else None
-
     def get_agent_role(self, agent_id: str) -> Optional[str]:
         results = self._execute(
             "SELECT agent_role FROM agents WHERE agent_id = %s",
@@ -108,7 +94,6 @@ class DatabaseManager:
         if results and results[0]['agent_role']:
             return results[0]['agent_role']
         return None
-
     def get_agent_schedule(self, agent_id: str) -> Optional[Dict]:
         """
         Get the work schedule assigned to this specific agent.
@@ -135,7 +120,6 @@ class DatabaseManager:
             'work_start': row['work_start'],
             'work_end':   row['work_end']
         }
-
     def get_agent_break(self, agent_id: str) -> Optional[Dict]:
         """Get the break time assigned to this specific agent."""
         results = self._execute(
@@ -155,14 +139,12 @@ class DatabaseManager:
             'break_start': row['break_start'],
             'break_end':   row['break_end']
         }
-
     def is_public_holiday(self) -> bool:
         """Check if today is a public holiday."""
         results = self._execute(
             "SELECT id FROM public_holidays WHERE date = CURRENT_DATE LIMIT 1"
         )
         return bool(results)
-
     def get_role_definition(self, role_name: str) -> Optional[List[Dict]]:
         try:
             results = self._execute(
@@ -174,24 +156,19 @@ class DatabaseManager:
             )
             if not results:
                 return None
-
             actions = results[0]['actions']
             if isinstance(actions, str):
                 actions = json.loads(actions)
-
             activities = []
             for action_type, config in actions.items():
                 activity = {"action": action_type}
                 activity.update(config)
                 activities.append(activity)
-
             logging.info(f"Loaded custom role '{role_name}' from database ({len(activities)} actions)")
             return activities
-
         except Exception as e:
             logging.error(f"Failed to fetch role definition '{role_name}': {e}")
             return None
-
     def update_agent_status(self, agent_id: str, last_activity: str):
         self._execute(
             """
@@ -204,7 +181,6 @@ class DatabaseManager:
             """,
             (datetime.utcnow(), last_activity, datetime.utcnow(), agent_id)
         )
-
     def get_role_updated_at(self, role_name: str):
         results = self._execute(
             "SELECT updated_at FROM agent_role_definitions WHERE name = %s AND is_active = TRUE",
@@ -213,7 +189,6 @@ class DatabaseManager:
         if results and results[0].get('updated_at'):
             return results[0]['updated_at']
         return None
-
     def get_deleted_tasks(self, agent_id: str) -> List[str]:
         """Return task names that have been deleted via manage_scheduled_task for this agent."""
         results = self._execute(
@@ -221,7 +196,6 @@ class DatabaseManager:
             (agent_id,)
         )
         return [r['task_name'] for r in results]
-
     def mark_task_deleted(self, agent_id: str, task_name: str):
         """Record that a scheduled task was deleted — prevents recreation."""
         self._execute(
@@ -232,14 +206,37 @@ class DatabaseManager:
             """,
             (agent_id, task_name)
         )
-
     def restore_task(self, agent_id: str, task_name: str):
         """Remove the deleted-task record — allows the task to be recreated again."""
         self._execute(
             "DELETE FROM agent_deleted_tasks WHERE agent_id = %s AND task_name = %s",
             (agent_id, task_name)
         )
-
+    def get_agent_interval(self, agent_id: str) -> Optional[Dict]:
+        """Return activity interval override for this agent, or None if not set."""
+        results = self._execute(
+            "SELECT activity_interval_min, activity_interval_max FROM agents WHERE agent_id = %s",
+            (agent_id,)
+        )
+        if not results:
+            return None
+        row = results[0]
+        if row['activity_interval_min'] is None and row['activity_interval_max'] is None:
+            return None
+        return {
+            'interval_min': row['activity_interval_min'],
+            'interval_max': row['activity_interval_max']
+        }
+    def set_agent_interval(self, agent_id: str, interval_min: int, interval_max: int):
+        """Set activity interval override for this agent."""
+        self._execute(
+            """
+            UPDATE agents
+            SET activity_interval_min = %s, activity_interval_max = %s
+            WHERE agent_id = %s
+            """,
+            (interval_min, interval_max, agent_id)
+        )
     def log_activity(self, agent_id: str, activity_type: str, activity_data: Dict[str, Any]):
         results = self._execute(
             "SELECT id FROM agents WHERE agent_id = %s",
@@ -248,9 +245,7 @@ class DatabaseManager:
         if not results:
             logging.error(f"Agent not found in DB: {agent_id}")
             return
-
         internal_id = results[0]['id']
-
         self._execute(
             """
             INSERT INTO agent_activities (agent_id, activity_type, activity_data, timestamp)
