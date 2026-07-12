@@ -7,14 +7,17 @@ Before starting, make sure you have:
 - Windows 10 or Windows 11
 - Network connectivity to the LISA Server
 - Microsoft Office installed (Word, Excel, Outlook)
-- Python 3.11 installed — download from [python.org](https://www.python.org)
-- Git installed — download from [git-scm.com](https://git-scm.com)
+- VS Code installed — download from [Visual Studio Code](https://code.visualstudio.com/download)
+- Adobe Acrobat Reader installed — download from [Get Adobe Acrobat Reader](https://get.adobe.com/reader/)
+- Python 3.11 installed — download from [python.org](https://www.python.org/)
+- Git installed — download from [git-scm.com](https://git-scm.com/)
+- Agent email account already created on the LISA Server — [Read Part 4 of the Mailserver Repo (Managing email accounts)](https://github.com/F26-IndProject/mailserver/)
 
-> When installing Python, tick **"Add python.exe to PATH"** before clicking Install. Without this, pip will not be found.
+When installing Python, tick **"Add python.exe to PATH"** before clicking Install. Without this, pip will not be found.
 
 ---
 
-## 1. Verify Python and pip are working
+## 1. Verify Python and pip
 
 Open PowerShell and run:
 
@@ -29,8 +32,6 @@ Both should return version numbers. If pip is not found, close PowerShell comple
 [System.Environment]::SetEnvironmentVariable("Path", $env:Path + ";C:\Users\$env:USERNAME\AppData\Local\Programs\Python\Python311;C:\Users\$env:USERNAME\AppData\Local\Programs\Python\Python311\Scripts", "Machine")
 ```
 
-Close and reopen PowerShell, then test again.
-
 ---
 
 ## 2. Clone the Windows Agent Repository
@@ -39,44 +40,157 @@ Open PowerShell and run:
 
 ```powershell
 git clone git@github.com:F26-IndProject/windows-agent.git
-cd C:\Users\$env:USERNAME\windows-agent
+cd "$env:USERPROFILE\windows-agent"
 ```
 
 ---
 
-## 3. Install Python Dependencies
-
-```powershell
-pip install -r requirements.txt
-```
-
-> This may take some time to complete. If nothing seems to be happening after 2 minutes, click the down arrow in the PowerShell window — the terminal may appear stuck even after installation has finished.
-
-After pywin32 installs, run this one extra step:
-
-```powershell
-python -m win32com.client.makepy
-```
-
-> When prompted to select a library, just click **Cancel** or close the window.
-
----
-
-## 4. Configure the Environment File
+## 3. Configure the Environment and Add Attachments
 
 Configure the `.env` file with the same values used when setting up the LISA Server.
 
+```powershell
+notepad .env
+```
+
+Save and close when done.
+
+Put all your images and PDFs in the `attachments` folder. The agent will randomly pick attachments from it when sending emails. After the script runs, they will be copied to `dist\attachments`.
+
 ---
 
-## 5. Add Attachments
+## 4. Run the Installation Script
 
-Put all your images and PDFs in the `attachments` folder. The agent will randomly pick attachments from it when sending emails.
+```powershell
+Start-Process powershell -ArgumentList "-ExecutionPolicy RemoteSigned -Command `"Set-Location -Path '$PWD'; & '.\install.ps1'`"" -Verb RunAs
+```
+
+The script will prompt for:
+- **Login password** — used to enable auto-login on reboot
+- **LISA Server IP** — used to configure the hosts file
+
+> **Note:** During step 2 of the script, a window will appear asking you to select a library. **Click Cancel or close the window** — this is expected behaviour.
+
+The script will then:
+- Install Python dependencies
+- Compile the agent
+- Copy attachments to `dist\attachments`
+- Set up the autostart scheduled task
+- Enable auto-login
+- Configure RDP and OpenSSH
+- Update the hosts file
 
 ---
 
-## 6. Compile the Agent
+## 5. Adding the Server Certificate to the Trust Store
 
-If you have older compilations, remove them first:
+On the LISA Server, start a temporary HTTP server:
+
+```bash
+python3 -m http.server 9999 --directory /etc/ssl/mail
+```
+
+On the Windows agent, download the certificate:
+
+```powershell
+Invoke-WebRequest -Uri "http://LISA_SERVER_IP:9999/mail.lisa.local.crt" -OutFile "$env:USERPROFILE\mail.lisa.local.crt"
+```
+
+Add it to the trust store:
+
+```powershell
+Start-Process powershell -ArgumentList "-ExecutionPolicy RemoteSigned -Command `"Import-Certificate -FilePath '$env:USERPROFILE\mail.lisa.local.crt' -CertStoreLocation Cert:\LocalMachine\Root`"" -Verb RunAs
+```
+
+---
+
+## 6. Adding a Local Email Account
+
+You need to set up the agent's email account on the LISA Server before configuring Outlook.
+Follow this guide: [Read Part 4 of the Mailserver Repo (Managing email accounts)](https://github.com/F26-IndProject/mailserver/)
+
+---
+
+## 7. Configuring Outlook
+
+### Outlook (Windows Agents)
+
+**Incoming mail (IMAP):**
+
+| Setting    | Value           |
+|------------|-----------------|
+| Server     | mail.lisa.local |
+| Email      | your@lisa.local |
+| Port       | 993             |
+| Encryption | SSL/TLS         |
+
+**Outgoing mail (SMTP):**
+
+| Setting    | Value           |
+|------------|-----------------|
+| Server     | mail.lisa.local |
+| Port       | 587             |
+| Encryption | STARTTLS        |
+
+---
+
+## Disable Warning for Programmatic Access (Important)
+
+1. Run Outlook as administrator.
+2. Go to **File > Options > Trust Center > Trust Center Settings > Programmatic Access**.
+3. Select **Never warn me about suspicious activity (not recommended)** and click **OK**.
+
+---
+
+## Default Apps for Images and PDF
+
+Open the `attachments` folder and open an image file — when the **"How do you want to open this file?"** dialog appears, select **Photos** and click **Always**. This sets Photos as the permanent default for images.
+
+Do the same for a PDF file — open it and select **Adobe Acrobat Reader** when prompted, then click **Always**.
+
+This only needs to be done once per machine.
+
+---
+
+***Now, reboot the Windows agent to apply all changes and start the agent automatically.***
+
+---
+
+## Process Tree Verification
+
+To verify the process tree:
+
+```powershell
+Get-WmiObject Win32_Process | Select-Object Name, ProcessId, ParentProcessId, @{Name="ParentName";Expression={($_.GetOwnerProcess().Name)}} | Where-Object {$_.Name -match "WINWORD|EXCEL|msedge|powershell|OUTLOOK|Photos|Acrobat|cmd|firefox|code|rdp|mstsc|wfreerdp|log|runner"}
+```
+
+To inspect a specific process by ID:
+
+```powershell
+Get-Process -Id <ID>
+```
+
+---
+
+## In Case the Agent Needs to Be Recompiled
+
+Stop the agent first:
+
+```powershell
+Stop-ScheduledTask -TaskName "LISA Agent"
+```
+
+Then rerun the script. After it finishes:
+
+```powershell
+Start-ScheduledTask -TaskName "LISA Agent"
+```
+
+```powershell
+cd "$env:USERPROFILE\windows-agent"
+```
+
+Remove older compilations first:
 
 ```powershell
 Remove-Item -Recurse -Force build, dist
@@ -91,146 +205,7 @@ pyinstaller --onefile --name agent --hidden-import win32com.client --hidden-impo
 Copy the attachments folder into the dist directory:
 
 ```powershell
-xcopy /E /I attachments dist\attachments
+Copy-Item -Path "attachments" -Destination "dist\attachments" -Recurse -Force
 ```
 
 After compiling, the agent executable will be at `dist\agent.exe`.
-
----
-
-## 7. Set Up Autostart with Scheduled Task
-
-Open PowerShell as Administrator (right-click Start → Windows Terminal (Admin)):
-
-```powershell
-cd C:\Users\$env:USERNAME\windows-agent
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-.\setup_autostart.ps1
-```
-
-> When prompted about execution policy, type `Y` and press Enter.
-
-Verify the task was created:
-
-```powershell
-Get-ScheduledTask -TaskName "LISA Agent"
-```
-
----
-
-## 8. Enable Auto-Login
-
-For the agent to run without anyone typing a password on reboot, enable auto-login.
-
-Open PowerShell as Administrator:
-
-```powershell
-$reg = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"
-Set-ItemProperty -Path $reg -Name AutoAdminLogon -Value "1"
-Set-ItemProperty -Path $reg -Name DefaultUsername -Value "your-windows-user"
-Set-ItemProperty -Path $reg -Name DefaultPassword -Value "YourPasswordHere"
-```
-
-Replace `your-windows-user` and `YourPasswordHere` with the actual username and password for that Windows system.
-
----
-
-## 9. Configure the Agent to Accept RDP Connections from Other Agents
-
-Run the following commands in PowerShell as Administrator:
-
-```powershell
-# Enable Remote Desktop
-Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
-
-# Allow through firewall
-Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-
-# Disable Network Level Authentication (so agents can connect without NLA)
-Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0
-
-# Enable ping through firewall
-Enable-NetFirewallRule -DisplayName "File and Printer Sharing (Echo Request - ICMPv4-In)"
-```
-
----
-
-## 10. DNS, SSL, and Application Configuration
-
-### 10.1 DNS Configuration
-
-Open Notepad as Administrator and edit:
-
-```
-C:\Windows\System32\drivers\etc\hosts
-```
-
-Add the following line:
-
-```
-LISA_SERVER_IP  mail.lisa.local  lisa.local
-```
-
-**Example:**
-
-```
-192.168.100.10  mail.lisa.local  lisa.local
-```
-
-For more details, see [Windows Agent DNS Configuration](https://github.com/F26-IndProject/mailserver#part-1-configuring-local-dns-records).
-
----
-
-### 10.2 Adding the Server Certificate to the Trust Store
-
-On the LISA Server, start a temporary HTTP server:
-
-```bash
-python3 -m http.server 9999 --directory /etc/ssl/mail
-```
-
-On the Windows agent, run PowerShell as Administrator:
-
-```powershell
-Invoke-WebRequest -Uri "http://LISA_SERVER_IP:9999/mail.lisa.local.crt" -OutFile "$env:USERPROFILE\mail.lisa.local.crt"
-Import-Certificate -FilePath "$env:USERPROFILE\mail.lisa.local.crt" -CertStoreLocation Cert:\LocalMachine\Root
-```
-
-For more details, see [Adding SSL Certificate to Trust Store](https://github.com/F26-IndProject/mailserver#distribute-the-certificate-to-agents).
-
----
-
-### 10.3 Adding a Local Email Account
-
-To add a new agent email account on the server, follow this guide: [Adding a New Local Email Account](https://github.com/F26-IndProject/mailserver#part-5-adding-a-new-email-account).
-
----
-
-### 10.4 Configuring Outlook
-
-To set up the email account in Outlook, follow this guide: [Logging into Email Account on Outlook](https://github.com/F26-IndProject/mailserver#part-6-configuring-email-clients).
-
----
-
-### 10.5 Install Required Applications
-
-Install the following applications on the Windows agent:
-
-- [Visual Studio Code](https://code.visualstudio.com)
-- [Adobe Acrobat Reader](https://get.adobe.com/reader)
-
----
-
-## Process Verification
-
-To verify the agent is running correctly and check the process tree:
-
-```powershell
-Get-WmiObject Win32_Process | Select-Object Name, ProcessId, ParentProcessId, @{Name="ParentName";Expression={($_.GetOwnerProcess().Name)}} | Where-Object {$_.Name -match "WINWORD|EXCEL|msedge|powershell|OUTLOOK|Photos|Acrobat|cmd|firefox|code|rdp|mstsc|wfreerdp|log|runner"}
-```
-
-To inspect a specific process by ID:
-
-```powershell
-Get-Process -Id <ID>
-```
