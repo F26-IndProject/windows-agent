@@ -26,10 +26,16 @@ python --version
 pip --version
 ```
 
-Both should return version numbers. If pip is not found, close PowerShell completely and open a new one. If still not found, run:
+Both should return version numbers. If pip is not found, close PowerShell completely and open a new Powershell as an Administrator. If still not found, run:
 
 ```powershell
-[System.Environment]::SetEnvironmentVariable("Path", $env:Path + ";C:\Users\$env:USERNAME\AppData\Local\Programs\Python\Python311;C:\Users\$env:USERNAME\AppData\Local\Programs\Python\Python311\Scripts", "Machine")
+[System.Environment]::SetEnvironmentVariable("Path", $env:Path + ";$env:LOCALAPPDATA\Programs\Python\Python311;$env:LOCALAPPDATA\Programs\Python\Python311\Scripts", "Machine")
+```
+
+If Git if not recognised after installing it, open Powershell as an Administrator and manulally add git to PATH, close the windows and re-open powershell to run your commands 
+
+```powershell
+[System.Environment]::SetEnvironmentVariable("Path", $env:Path + ";$env:ProgramFiles\Git\cmd", "Machine")
 ```
 
 ---
@@ -39,7 +45,7 @@ Both should return version numbers. If pip is not found, close PowerShell comple
 Open PowerShell and run:
 
 ```powershell
-git clone git@github.com:F26-IndProject/windows-agent.git
+git clone https://github.com/F26-IndProject/windows-agent.git
 cd "$env:USERPROFILE\windows-agent"
 ```
 
@@ -136,7 +142,7 @@ Follow this guide: [Read Part 4 of the Mailserver Repo (Managing email accounts)
 
 ## Disable Warning for Programmatic Access (Important)
 
-1. Run Outlook as administrator.
+1. Close the Ouylook windows from above and Run Outlook again as administrator.
 2. Go to **File > Options > Trust Center > Trust Center Settings > Programmatic Access**.
 3. Select **Never warn me about suspicious activity (not recommended)** and click **OK**.
 
