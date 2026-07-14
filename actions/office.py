@@ -28,6 +28,7 @@ import time
 from datetime import datetime
 
 from actions.templates.email import REPLY_TEMPLATES, SEND_TEMPLATES
+from actions.apps import kill_process
 from actions.templates.word_excel import get_word_content, get_excel_template
 
 
@@ -132,14 +133,14 @@ def _open_word_attachment(file_path: str):
 
         ext = os.path.splitext(file_path)[1].lower()
         if ext in [".docx", ".doc"]:
-            subprocess.run(["taskkill", "/F", "/IM", "WINWORD.EXE"], capture_output=True)
+            kill_process("WINWORD.EXE")
         elif ext in [".odt", ".odf"]:
-            subprocess.run(["taskkill", "/F", "/IM", "soffice.exe"], capture_output=True)
+            kill_process("soffice.exe")
         logging.info(f"Word attachment closed: {os.path.basename(file_path)}")
 
     except Exception as e:
         logging.error(f"Word attachment failed: {e}")
-        subprocess.run(["taskkill", "/F", "/IM", "WINWORD.EXE"], capture_output=True)
+        kill_process("WINWORD.EXE")
 
 
 def _open_pdf_or_image_attachment(file_path: str):
@@ -164,10 +165,10 @@ def _open_pdf_or_image_attachment(file_path: str):
     time.sleep(read_time)
 
     if ext in PDF_EXTENSIONS:
-        subprocess.run(["taskkill", "/F", "/IM", "Acrobat.exe"], capture_output=True)
-        subprocess.run(["taskkill", "/F", "/IM", "AcroRd32.exe"], capture_output=True)
+        kill_process("Acrobat.exe")
+        kill_process("AcroRd32.exe")
     elif ext in IMAGE_EXTENSIONS:
-        subprocess.run(["taskkill", "/F", "/IM", "Microsoft.Photos.exe"], capture_output=True)
+        kill_process("Microsoft.Photos.exe")
 
     logging.info(f"Attachment closed: {os.path.basename(file_path)}")
 
@@ -276,7 +277,7 @@ def read_outlook_inbox():
             outlook.Quit()
         except Exception:
             pass
-        subprocess.run(["taskkill", "/F", "/IM", "OUTLOOK.EXE"], capture_output=True)
+        kill_process("OUTLOOK.EXE")
         logging.info("Outlook closed after read")
 
         pythoncom.CoUninitialize()
@@ -337,7 +338,7 @@ def send_outlook_email(
             outlook.Quit()
         except Exception:
             pass
-        subprocess.run(["taskkill", "/F", "/IM", "OUTLOOK.EXE"], capture_output=True)
+        kill_process("OUTLOOK.EXE")
         logging.info("Outlook closed after send")
 
         pythoncom.CoUninitialize()
@@ -381,7 +382,7 @@ def create_word_document(filename: str = "document.docx", content: str = ""):
             word.Quit()
         except Exception:
             pass
-        subprocess.run(["taskkill", "/F", "/IM", "WINWORD.EXE"], capture_output=True)
+        kill_process("WINWORD.EXE")
         logging.info("Word closed")
 
         pythoncom.CoUninitialize()
@@ -390,7 +391,7 @@ def create_word_document(filename: str = "document.docx", content: str = ""):
         logging.error("pywin32 not installed.")
     except Exception as e:
         logging.error(f"Word COM failed: {e}")
-        subprocess.run(["taskkill", "/F", "/IM", "WINWORD.EXE"], capture_output=True)
+        kill_process("WINWORD.EXE")
 
 
 def create_excel_spreadsheet(filename: str = "data.xlsx"):
@@ -434,7 +435,7 @@ def create_excel_spreadsheet(filename: str = "data.xlsx"):
             excel.Quit()
         except Exception:
             pass
-        subprocess.run(["taskkill", "/F", "/IM", "EXCEL.EXE"], capture_output=True)
+        kill_process("EXCEL.EXE")
         logging.info("Excel closed")
 
         pythoncom.CoUninitialize()
@@ -443,4 +444,4 @@ def create_excel_spreadsheet(filename: str = "data.xlsx"):
         logging.error("pywin32 not installed.")
     except Exception as e:
         logging.error(f"Excel COM failed: {e}")
-        subprocess.run(["taskkill", "/F", "/IM", "EXCEL.EXE"], capture_output=True)
+        kill_process("EXCEL.EXE")

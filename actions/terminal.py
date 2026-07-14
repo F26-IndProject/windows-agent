@@ -5,6 +5,8 @@ import sys
 import time
 import random
 
+from actions.apps import kill_process
+
 def get_spawner_path():
     if getattr(sys, 'frozen', False):
         exe_dir = os.path.dirname(sys.executable)
@@ -42,11 +44,7 @@ def run_cmd(command: str, visible: bool = True):
         logging.info(f"CMD window open for {wait}s")
         time.sleep(wait)
 
-        subprocess.run(
-            ["taskkill", "/F", "/IM", "cmd.exe"],
-            capture_output=True,
-            creationflags=subprocess.CREATE_NO_WINDOW
-        )
+        kill_process("cmd.exe")
         logging.info("CMD window closed")
 
     except Exception as e:
@@ -78,11 +76,7 @@ def run_powershell(command: str, visible: bool = True):
         logging.info(f"PowerShell window open for {wait}s")
         time.sleep(wait)
 
-        subprocess.run(
-            ["taskkill", "/F", "/IM", "powershell.exe"],
-            capture_output=True,
-            creationflags=subprocess.CREATE_NO_WINDOW
-        )
+        kill_process("powershell.exe")
         logging.info("PowerShell window closed")
 
     except Exception as e:

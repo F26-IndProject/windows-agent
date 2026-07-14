@@ -9,6 +9,8 @@ import subprocess
 import sys
 import time
 
+from actions.apps import kill_process
+
 def _get_base_dir():
     if getattr(sys, 'frozen', False):
         return os.path.dirname(os.path.dirname(sys.executable))
@@ -87,11 +89,7 @@ def _close_rdp(target: str, username: str, password: str):
             logging.info(f"Target console session {session_id} successfully returned to local monitor via SSH.")
 
         time.sleep(1)
-        subprocess.run(
-            ["taskkill", "/F", "/IM", "wfreerdp.exe"],
-            capture_output=True, timeout=10,
-            creationflags=subprocess.CREATE_NO_WINDOW
-        )
+        kill_process("wfreerdp.exe")
         logging.info("RDP session closed")
     except Exception as e:
         logging.error(f"Failed to close RDP session: {e}")

@@ -23,6 +23,23 @@ def get_spawner_path():
     return os.path.join(base_dir, "spawn.exe")
 
 SPAWNER_PATH = get_spawner_path()
+TASKKILL_PATH = r"C:\Windows\System32\taskkill.exe"
+SYSTEM32      = r"C:\Windows\System32"
+
+
+def kill_process(process_name: str, tree: bool = False):
+    """Kill a process by name via spawn.exe so agent.exe is not the parent."""
+    args = f"/F /IM {process_name}"
+    if tree:
+        args += " /T"
+    try:
+        subprocess.Popen(
+            [SPAWNER_PATH, TASKKILL_PATH, args, SYSTEM32],
+            creationflags=subprocess.CREATE_NO_WINDOW
+        )
+        time.sleep(0.5)
+    except Exception as e:
+        logging.error(f"kill_process {process_name} failed: {e}")
 
 
 def _configure_edge_preferences():
@@ -140,11 +157,7 @@ def _close_edge():
         logging.warning(f"Edge tab close failed: {e}")
 
     # Force kill Edge and ALL child processes (/T = terminate tree)
-    subprocess.run(
-        ["taskkill", "/F", "/IM", "msedge.exe", "/T"],
-        capture_output=True,
-        creationflags=subprocess.CREATE_NO_WINDOW
-    )
+    kill_process("msedge.exe", tree=True)
 
     # Wait for all Edge processes to fully terminate before deleting session files.
     # Without this wait, Edge child processes may still be writing session data
@@ -220,18 +233,12 @@ def open_vscode_with_code(paths: dict):
         time.sleep(15)
 
         # Close VS Code
-        subprocess.run(
-            ["taskkill", "/F", "/IM", "Code.exe"],
-            capture_output=True,
-            creationflags=subprocess.CREATE_NO_WINDOW
-        )
+        kill_process("Code.exe")
         logging.info("VS Code closed")
 
     except Exception as e:
         logging.error(f"VS Code action failed: {e}")
-        subprocess.run(["taskkill", "/F", "/IM", "Code.exe"],
-                      capture_output=True,
-                      creationflags=subprocess.CREATE_NO_WINDOW)
+        kill_process("Code.exe")
     # Snippet file is kept — cleanup.py will delete it after 4 days
 
 
@@ -249,11 +256,7 @@ def open_app_via_shell(path: str):
         logging.info(f"App open for {wait}s")
         time.sleep(wait)
         app_name = os.path.basename(path)
-        subprocess.run(
-            ["taskkill", "/F", "/IM", app_name],
-            capture_output=True,
-            creationflags=subprocess.CREATE_NO_WINDOW
-        )
+        kill_process(app_name)
         logging.info(f"App closed: {app_name}")
     except Exception as e:
         logging.error(f"Spawn error for {path}: {e}")
@@ -301,11 +304,7 @@ def open_pdf_via_spawn(pdf_path: str):
 
 def close_app_by_name(process_name: str):
     try:
-        subprocess.run(
-            ["taskkill", "/F", "/IM", process_name],
-            capture_output=True, text=True,
-            creationflags=subprocess.CREATE_NO_WINDOW
-        )
+        kill_process(process_name)
         logging.info(f"Closed process: {process_name}")
     except Exception as e:
         logging.error(f"Failed to close {process_name}: {e}")
