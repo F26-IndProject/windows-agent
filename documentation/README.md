@@ -252,7 +252,7 @@ Both binaries are written in C and compiled with MinGW (`x86_64-w64-mingw32-gcc`
 
 ---
 
-## 6. Parent Process Hiding Strategy
+## 6. Parent Process Hiding Strategy verified using Sysmon and PS
 
 The agent uses a layered strategy to ensure it never appears as the parent of any visible process:
 
@@ -264,7 +264,7 @@ The agent uses a layered strategy to ensure it never appears as the parent of an
 | VS Code | spawn.exe | explorer.exe |
 | log_writer.exe | spawn.exe | explorer.exe |
 | PowerShell (task mgmt) | spawn_ps.exe | explorer.exe |
-| SMB (net use, file I/O) | direct (no process) | N/A |
+| SMB (Windows WNetAddConnection2W) | direct (no process) | N/A |
 | wfreerdp.exe (RDP) | spawn.exe | explorer.exe |
 
 
