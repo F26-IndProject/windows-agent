@@ -11,10 +11,11 @@ Simulates realistic user file share behaviour:
 Generates real SMB/CIFS traffic visible on the network.
 """
 
+import ctypes
+import ctypes.wintypes
 import logging
 import os
 import random
-import subprocess
 import time
 from datetime import datetime
 
@@ -82,20 +83,39 @@ def access_share(
 
 
 def _map_share(share_path: str, username: str, password: str):
-    subprocess.run(["net", "use", DRIVE_LETTER, "/delete", "/yes"], capture_output=True)
+    """Map share via WNetAddConnection2W API — no subprocess, no child process."""
+    # Unmap first if already mapped
+    ctypes.windll.mpr.WNetCancelConnection2W(DRIVE_LETTER, 0, True)
     time.sleep(1)
 
-    cmd = ["net", "use", DRIVE_LETTER, share_path]
-    if username:
-        cmd += [f"/user:{username}", password]
-    cmd += ["/persistent:no"]
+    class NETRESOURCEW(ctypes.Structure):
+        _fields_ = [
+            ("dwScope",       ctypes.wintypes.DWORD),
+            ("dwType",        ctypes.wintypes.DWORD),
+            ("dwDisplayType", ctypes.wintypes.DWORD),
+            ("dwUsage",       ctypes.wintypes.DWORD),
+            ("lpLocalName",   ctypes.wintypes.LPWSTR),
+            ("lpRemoteName",  ctypes.wintypes.LPWSTR),
+            ("lpComment",     ctypes.wintypes.LPWSTR),
+            ("lpProvider",    ctypes.wintypes.LPWSTR),
+        ]
 
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
-    if result.returncode == 0:
+    nr = NETRESOURCEW()
+    nr.dwType      = 1  # RESOURCETYPE_DISK
+    nr.lpLocalName  = DRIVE_LETTER
+    nr.lpRemoteName = share_path
+    nr.lpProvider   = None
+
+    ret = ctypes.windll.mpr.WNetAddConnection2W(
+        ctypes.byref(nr),
+        password or None,
+        username or None,
+        0
+    )
+    if ret == 0:
         logging.info(f"Mapped {share_path} to {DRIVE_LETTER}")
     else:
-        logging.error(f"Failed to map share: {result.stderr}")
-        raise RuntimeError(f"net use failed: {result.stderr}")
+        raise RuntimeError(f"WNetAddConnection2W failed with error {ret}")
 
 
 def _list_share():
@@ -227,11 +247,9 @@ def _copy_file():
 
 
 def _unmap_share():
+    """Unmap share via WNetCancelConnection2W API — no subprocess, no child process."""
     try:
-        subprocess.run(
-            ["net", "use", DRIVE_LETTER, "/delete", "/yes"],
-            capture_output=True, timeout=10
-        )
+        ctypes.windll.mpr.WNetCancelConnection2W(DRIVE_LETTER, 0, True)
         logging.info(f"Unmapped {DRIVE_LETTER}")
     except Exception as e:
         logging.error(f"Failed to unmap share: {e}")
