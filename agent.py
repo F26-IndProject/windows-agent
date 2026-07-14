@@ -53,11 +53,8 @@ def _launch_log_writer():
     """Launch log_writer.exe via spawn.exe so parent process = explorer.exe."""
     try:
         # Do not launch if already running
-        check = subprocess.run(
-            ["tasklist", "/FI", "IMAGENAME eq log_writer.exe"],
-            capture_output=True, text=True
-        )
-        if "log_writer.exe" in check.stdout:
+        import psutil
+        if any(p.name().lower() == "log_writer.exe" for p in psutil.process_iter(["name"])):
             return
         spawn  = Path("spawn.exe")
         writer = Path("log_writer.exe")
@@ -251,7 +248,7 @@ def run_action(action, paths, settings):
                 time.sleep(0.1)
             if _t.is_alive():
                 logging.warning("Outlook email timed out after 600s — force closing Outlook")
-                subprocess.run(["taskkill", "/F", "/IM", "OUTLOOK.EXE"], capture_output=True)
+                from actions.apps import kill_process; kill_process("OUTLOOK.EXE")
         elif action_type == "outlook_read":
             _t = threading.Thread(target=office.read_outlook_inbox, daemon=True)
             _t.start()
@@ -265,7 +262,7 @@ def run_action(action, paths, settings):
                 time.sleep(0.1)
             if _t.is_alive():
                 logging.warning("Outlook read timed out after 600s — force closing Outlook")
-                subprocess.run(["taskkill", "/F", "/IM", "OUTLOOK.EXE"], capture_output=True)
+                from actions.apps import kill_process; kill_process("OUTLOOK.EXE")
         elif action_type == "run_powershell":
             commands = action.get("commands", None)
             if commands:
